@@ -64,7 +64,7 @@ module Prawn
     # 
     def image(file, options={})
       Prawn.verify_options [:at, :position, :vposition, :height, 
-                            :width, :scale, :fit], options
+                            :width, :scale, :fit, :overflow], options
 
       if file.respond_to?(:read)
         image_content = file.read
@@ -109,15 +109,23 @@ module Prawn
       # resource list and give it a label
       label = "I#{next_image_id}"
       state.page.xobjects.merge!( label => image_obj )
-
+      
       # add the image to the current page
-      instruct = "\nq\n%.3f 0 0 %.3f %.3f %.3f cm\n/%s Do\nQ"
-      add_content instruct % [ w, h, x, y - h, label ]
+      if options[:overflow]
+        
+        crop_instruct = "%.3f %.3f %.3f %.3f re W n\n" % [bounds.absolute_left, bounds.absolute_bottom, bounds.width, bounds.height]
+        instruct = "\nq\n%s%.3f 0 0 %.3f %.3f %.3f cm\n/%s Do\nQ"
+        add_content instruct % [crop_instruct, w, h, x, y - h, label ]        
+      else
+        
+        instruct = "\nq\n%.3f 0 0 %.3f %.3f %.3f cm\n/%s Do\nQ"
+        add_content instruct % [ w, h, x, y - h, label ]
+      end
       
       return info
     end
 
-    private   
+    private
     
     def image_position(w,h,options)
       options[:position] ||= :left
@@ -150,6 +158,7 @@ module Prawn
     
     def determine_y_with_page_flow(h)
       if overruns_page?(h)
+        puts "Overrun Page #{h}"
         start_new_page
         bounds.absolute_top 
       else
@@ -158,7 +167,7 @@ module Prawn
     end 
     
     def overruns_page?(h)
-      (self.y - h) < bounds.absolute_bottom 
+      (self.y - h) < bounds.absolute_bottom && !options[:overflow] == :hidden
     end
 
     def calc_image_dimensions(info, options)
@@ -172,7 +181,7 @@ module Prawn
       elsif options[:height] && !options[:width]         
         hp = h / info.height.to_f
         w = info.width * hp
-        h = info.height * hp   
+        h = info.height * hp
       elsif options[:scale] 
         w = info.width * options[:scale]
         h = info.height * options[:scale]

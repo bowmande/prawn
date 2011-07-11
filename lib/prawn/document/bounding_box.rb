@@ -213,9 +213,10 @@ module Prawn
         @total_left_padding = 0
         @total_right_padding = 0
         @stretched_height = nil
+        @overflow = options[:overflow] || :flow
       end
 
-      attr_reader :document, :parent
+      attr_reader :document, :parent, :overflow
       # The current indentation of the left side of the bounding box.
       attr_reader :total_left_padding
       # The current indentation of the right side of the bounding box.

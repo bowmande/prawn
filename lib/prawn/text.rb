@@ -404,7 +404,7 @@ module Prawn
       bottom = @bounding_box.stretchy? ? @margin_box.absolute_bottom :
                                          @bounding_box.absolute_bottom
 
-      @bounding_box.move_past_bottom if (y - dy) < bottom
+      @bounding_box.move_past_bottom if (y - dy) < bottom && !@bounding_box.overflow == :truncate
 
       self.y -= dy
     end
