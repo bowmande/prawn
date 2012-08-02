@@ -155,7 +155,6 @@ module Prawn
 
             @document.character_spacing(character_spacing) do
               if font || font_style != :normal
-                raise "Bad font family" unless @document.font.family
                 @document.font(font || @document.font.family, :style => font_style) do
                   apply_font_size(size, styles, &block)
                 end
