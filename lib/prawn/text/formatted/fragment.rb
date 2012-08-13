@@ -117,6 +117,10 @@ module Prawn
           @format_state[:size]
         end
 
+        def leading
+          @format_state[:leading].to_i
+        end
+
         def character_spacing
           @format_state[:character_spacing] ||
             @document.character_spacing

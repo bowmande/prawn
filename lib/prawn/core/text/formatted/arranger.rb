@@ -279,7 +279,7 @@ module Prawn
           end
 
           def set_line_measurement_maximums(fragment)
-            @max_line_height = [@max_line_height, fragment.line_height].max
+            @max_line_height = [@max_line_height, fragment.line_height + fragment.leading].max
             @max_descender = [@max_descender, fragment.descender].max
             @max_ascender = [@max_ascender, fragment.ascender].max
           end
