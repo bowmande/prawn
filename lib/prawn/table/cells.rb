@@ -9,13 +9,6 @@
 module Prawn
   class Table
 
-    # Returns a Cells object that can be used to select and style cells. See
-    # the Cells documentation for things you can do with cells.
-    #
-    def cells
-      @cell_proxy ||= Cells.new(@cells)
-    end
-
     # Selects the given rows (0-based) for styling. Returns a Cells object --
     # see the documentation on Cells for things you can do with cells.
     #
@@ -54,11 +47,20 @@ module Prawn
       #
       def rows(row_spec)
         index_cells unless @indexed
-        row_spec = transform_spec(row_spec, @row_count)
-        Cells.new(@rows[row_spec] ||= select{ |c| row_spec === c.row })
+        row_spec = transform_spec(row_spec, @first_row, @row_count)
+        Cells.new(@rows[row_spec] ||= select { |c|
+                    row_spec.respond_to?(:include?) ?
+                      row_spec.include?(c.row) : row_spec === c.row })
       end
       alias_method :row, :rows
-      
+
+      # Returns the number of rows in the list.
+      #
+      def row_count
+        index_cells unless @indexed
+        @row_count
+      end
+
       # Limits selection to the given column or columns. +col_spec+ can be
       # anything that responds to the === operator selecting a set of 0-based
       # column numbers; most commonly a number or a range.
@@ -68,10 +70,19 @@ module Prawn
       #
       def columns(col_spec)
         index_cells unless @indexed
-        col_spec = transform_spec(col_spec, @column_count)
-        Cells.new(@columns[col_spec] ||= select{ |c| col_spec === c.column })
+        col_spec = transform_spec(col_spec, @first_column, @column_count)
+        Cells.new(@columns[col_spec] ||= select { |c|
+                    col_spec.respond_to?(:include?) ? 
+                      col_spec.include?(c.column) : col_spec === c.column })
       end
       alias_method :column, :columns
+
+      # Returns the number of columns in the list.
+      #
+      def column_count
+        index_cells unless @indexed
+        @column_count
+      end
 
       # Allows you to filter the given cells by arbitrary properties.
       #
@@ -88,7 +99,33 @@ module Prawn
       #   table.cells[0, 0].content # => "First cell content"
       #
       def [](row, col)
-        find { |c| c.row == row && c.column == col }
+        return nil if empty?
+        index_cells unless @indexed
+        row_array, col_array = @rows[@first_row + row] || [], @columns[@first_column + col] || []
+        if row_array.length < col_array.length
+          row_array.find { |c| c.column == @first_column + col }
+        else
+          col_array.find { |c| c.row == @first_row + row }
+        end
+      end
+
+      # Puts a cell in the collection at the given position. Internal use only.
+      #
+      def []=(row, col, cell) # :nodoc:
+        cell.extend(Cell::InTable)
+        cell.row = row
+        cell.column = col
+
+        if @indexed
+          (@rows[row]    ||= []) << cell
+          (@columns[col] ||= []) << cell
+          @first_row    = row if !@first_row    || row < @first_row
+          @first_column = col if !@first_column || col < @first_column
+          @row_count    = @rows.size
+          @column_count = @columns.size
+        end
+
+        self << cell
       end
 
       # Supports setting multiple properties at once.
@@ -106,51 +143,43 @@ module Prawn
       #   table.cells.style { |cell| cell.border_width += 12 }
       #
       def style(options={}, &block)
-        each { |cell| cell.style(options, &block) }
+        each do |cell|
+          next if cell.is_a?(Cell::SpanDummy)
+          cell.style(options, &block)
+        end
       end
 
       # Returns the total width of all columns in the selected set.
       #
       def width
-        column_widths = {}
-        each do |cell| 
-          column_widths[cell.column] = 
-            [column_widths[cell.column], cell.width].compact.max
+        widths = {}
+        each do |cell|
+          index = cell.column
+          per_cell_width = cell.width_ignoring_span.to_f / cell.colspan
+          cell.colspan.times do |n|
+            widths[cell.column+n] = [widths[cell.column+n], per_cell_width].
+              compact.max
+          end
         end
-        column_widths.values.inject(0) { |sum, width| sum + width }
+        widths.values.inject(0, &:+)
       end
 
       # Returns minimum width required to contain cells in the set.
       #
       def min_width
-        column_min_widths = {}
-        each do |cell| 
-          column_min_widths[cell.column] = 
-            [column_min_widths[cell.column], cell.min_width].compact.max
-        end
-        column_min_widths.values.inject(0) { |sum, width| sum + width }
+        aggregate_cell_values(:column, :avg_spanned_min_width, :max)
       end
 
       # Returns maximum width that can contain cells in the set.
       #
       def max_width
-        column_max_widths = {}
-        each do |cell| 
-          column_max_widths[cell.column] = 
-            [column_max_widths[cell.column], cell.max_width].compact.min
-        end
-        column_max_widths.values.inject(0) { |sum, width| sum + width }
+        aggregate_cell_values(:column, :max_width_ignoring_span, :min)
       end
 
       # Returns the total height of all rows in the selected set.
       #
       def height
-        row_heights = {}
-        each do |cell| 
-          row_heights[cell.row] = 
-            [row_heights[cell.row], cell.height].compact.max
-        end
-        row_heights.values.inject(0) { |sum, width| sum + width }
+        aggregate_cell_values(:row, :height_ignoring_span, :max)
       end
 
       # Supports setting arbitrary properties on a group of cells.
@@ -158,7 +187,11 @@ module Prawn
       #   table.cells.row(3..6).background_color = 'cc0000'
       #
       def method_missing(id, *args, &block)
-        each { |c| c.send(id, *args, &block) }
+        if id.to_s =~ /=\z/
+          each { |c| c.send(id, *args, &block) if c.respond_to?(id) }
+        else
+          super
+        end
       end
 
       protected
@@ -181,24 +214,45 @@ module Prawn
           @columns[cell.column] << cell
         end
 
+        @first_row    = @rows.keys.min
+        @first_column = @columns.keys.min
+
         @row_count    = @rows.size
         @column_count = @columns.size
 
         @indexed = true
       end
 
+      # Sum up a min/max value over rows or columns in the cells selected.
+      # Takes the min/max (per +aggregate+) of the result of sending +meth+ to
+      # each cell, grouped by +row_or_column+.
+      #
+      def aggregate_cell_values(row_or_column, meth, aggregate)
+        values = {}
+        each do |cell|
+          index = cell.send(row_or_column)
+          values[index] = [values[index], cell.send(meth)].compact.send(aggregate)
+        end
+        values.values.inject(0, &:+)
+      end
+
       # Transforms +spec+, a column / row specification, into an object that
       # can be compared against a row or column number using ===. Normalizes
-      # negative indices to be positive, given a total size of +total+.
+      # negative indices to be positive, given a total size of +total+. The
+      # first row/column is indicated by +first+; this value is considered row
+      # or column 0.
       #
-      def transform_spec(spec, total)
+      def transform_spec(spec, first, total)
         case spec
         when Range
-          transform_spec(spec.begin, total)..transform_spec(spec.end, total)
+          transform_spec(spec.begin, first, total) ..
+            transform_spec(spec.end, first, total)
         when Integer
-          spec < 0 ? (total + spec) : spec
+          spec < 0 ? (first + total + spec) : first + spec
+        when Enumerable
+          spec.map { |x| first + x }
         else # pass through
-          spec
+          raise "Don't understand spec #{spec.inspect}"
         end
       end
     end

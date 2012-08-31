@@ -154,10 +154,10 @@ module Prawn
     # Of course, if you use canvas, you will be responsible for ensuring that
     # you remain within the printable area of your document.
     #
-    def bounding_box(*args, &block)
+    def bounding_box(pt, *args, &block)
       init_bounding_box(block) do |parent_box|
-        map_to_absolute!(args[0])
-        @bounding_box = BoundingBox.new(self, parent_box, *args)
+        pt = map_to_absolute(pt)
+        @bounding_box = BoundingBox.new(self, parent_box, pt, *args)
       end
     end
 
@@ -181,13 +181,20 @@ module Prawn
     private
 
     def init_bounding_box(user_block, options={}, &init_block)
+      unless user_block
+        raise ArgumentError,
+          "bounding boxes require a block to be drawn within the box"
+      end
+
       parent_box = @bounding_box
 
       init_block.call(parent_box)
 
       self.y = @bounding_box.absolute_top
       user_block.call
-      self.y = @bounding_box.absolute_bottom unless options[:hold_position]
+      unless options[:hold_position] || @bounding_box.stretchy?
+        self.y = @bounding_box.absolute_bottom
+      end
 
       created_box, @bounding_box = @bounding_box, parent_box
 
@@ -436,17 +443,23 @@ module Prawn
 
       # an alias for absolute_left
       def left_side
-         absolute_left
+        absolute_left
       end
 
       # an alias for absolute_right
       def right_side
-         absolute_right
+        absolute_right
       end
 
-      # starts a new page
+      # Moves to the top of the next page of the document, starting a new page
+      # if necessary.
+      #
       def move_past_bottom
-        @document.start_new_page
+        if @document.page_number == @document.page_count
+          @document.start_new_page
+        else
+          @document.go_to_page(@document.page_number + 1)
+        end
       end
 
 
@@ -457,6 +470,17 @@ module Prawn
       #
       def stretchy?
         !@height
+      end
+
+      # Returns the innermost non-stretchy bounding box.
+      #
+      def reference_bounds
+        if stretchy?
+          raise "Can't find reference bounds: my parent is unset" unless @parent
+          @parent.reference_bounds
+        else
+          self
+        end
       end
 
       # Returns a deep copy of these bounds (including all parent bounds but

@@ -166,7 +166,7 @@ module Prawn
     #   pdf = Prawn::Document.new(:page_size => [200, 300])
     #
     #   # New document, with background
-    #   pdf = Prawn::Document.new(:background => "#{Prawn::BASEDIR}/data/images/pigs.jpg")
+    #   pdf = Prawn::Document.new(:background => "#{Prawn::DATADIR}/images/pigs.jpg")
     #
     def initialize(options={},&block)
       options = options.dup
@@ -327,7 +327,9 @@ module Prawn
       self.y = new_y + bounds.absolute_bottom
     end
 
-    # Executes a block and then restores the original y position
+    # Executes a block and then restores the original y position. If new pages
+    # were created during this block, it will teleport back to the original
+    # page when done.
     #
     #   pdf.text "A"
     #
@@ -339,7 +341,11 @@ module Prawn
     #   pdf.text "B"
     #
     def float
-      mask(:y) { yield }
+      original_page = page_number
+      original_y = y
+      yield
+      go_to_page(original_page) unless page_number == original_page
+      self.y = original_y
     end
 
     # Renders the PDF document to string
@@ -395,6 +401,12 @@ module Prawn
     #
     def bounds
       @bounding_box
+    end
+
+    # Returns the innermost non-stretchy bounding box.
+    #
+    def reference_bounds
+      @bounding_box.reference_bounds
     end
 
     # Sets Document#bounds to the BoundingBox provided.  See above for a brief
@@ -565,7 +577,7 @@ module Prawn
       total_pages = opts.delete(:total_pages)
       txtcolor = opts.delete(:color)
       # An explicit height so that we can draw page numbers in the margins
-      opts[:height] = 50
+      opts[:height] = 50 unless opts.has_key?(:height)
       
       start_count = false
       pseudopage = 0

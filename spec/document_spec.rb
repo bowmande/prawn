@@ -89,7 +89,7 @@ describe "When beginning each new page" do
 
   describe "Background template feature" do
     before(:each) do
-      @filename = "#{Prawn::BASEDIR}/data/images/pigs.jpg"
+      @filename = "#{Prawn::DATADIR}/images/pigs.jpg"
       @pdf = Prawn::Document.new(:background => @filename)
     end
     it "should place a background image if it is in options block" do
@@ -107,6 +107,31 @@ describe "When beginning each new page" do
   end
   
   
+end
+
+describe "Prawn::Document#float" do
+  it "should restore the original y-position" do
+    create_pdf
+    orig_y = @pdf.y
+    @pdf.float { @pdf.text "Foo" }
+    @pdf.y.should == orig_y
+  end
+
+  it "should teleport across pages if necessary" do
+    create_pdf
+    
+    @pdf.float do
+      @pdf.text "Foo"
+      @pdf.start_new_page
+      @pdf.text "Bar"
+    end
+    @pdf.text "Baz"
+
+    pages = PDF::Inspector::Page.analyze(@pdf.render).pages
+    pages.size.should == 2
+    pages[0][:strings].should == ["Foo", "Baz"]
+    pages[1][:strings].should == ["Bar"]
+  end
 end
 
 describe "The page_number method" do
@@ -210,7 +235,7 @@ describe "Document compression" do
     doc_uncompressed = Prawn::Document.new
     doc_compressed   = Prawn::Document.new(:compress => true)
     [doc_compressed, doc_uncompressed].each do |pdf|
-       pdf.font "#{Prawn::BASEDIR}/data/fonts/gkai00mp.ttf"
+       pdf.font "#{Prawn::DATADIR}/fonts/gkai00mp.ttf"
        pdf.text "更可怕的是，同质化竞争对手可以按照URL中后面这个ID来遍历" * 10
     end
 
@@ -649,6 +674,27 @@ describe "The number_pages method" do
         @pdf.expects(:text_box).with("9 6", { :height => 50 }) # page 6
         @pdf.number_pages "<page> <total>", options
       end
+    end
+  end
+
+  context "height option" do
+    before do
+      @pdf.start_new_page
+    end
+
+    it "with 10 height" do
+      @pdf.expects(:text_box).with("1 1", { :height => 10 })
+      @pdf.number_pages "<page> <total>", :height => 10
+    end
+
+    it "with nil height" do
+      @pdf.expects(:text_box).with("1 1", { :height => nil })
+      @pdf.number_pages "<page> <total>", :height => nil
+    end
+
+    it "with no height" do
+      @pdf.expects(:text_box).with("1 1", { :height => 50 })
+      @pdf.number_pages "<page> <total>"
     end
   end
 end

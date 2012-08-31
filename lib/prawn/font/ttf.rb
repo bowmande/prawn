@@ -47,7 +47,7 @@ module Prawn
             end
           end * scale
         else
-          string.unpack("U*").inject(0) do |s,r|
+          string.codepoints.inject(0) do |s,r|
             s + character_width_by_code(r)
           end * scale
         end
@@ -126,7 +126,7 @@ module Prawn
       def cap_height
         @cap_height ||= begin
           height = @ttf.os2.exists? && @ttf.os2.cap_height || 0
-          height == 0 ? ascender : height
+          height == 0 ? @ascender : height
         end
       end
 
@@ -160,34 +160,18 @@ module Prawn
       end
 
       def normalize_encoding(text)
-        if text.respond_to?(:encode)
-          # if we're running under a M17n aware VM, ensure the string provided is
-          # UTF-8 (by converting it if necessary)
-          begin
-            text.encode("UTF-8")
-          rescue
-            raise Prawn::Errors::IncompatibleStringEncoding, "Encoding " +
-            "#{text.encoding} can not be transparently converted to UTF-8. " +
-            "Please ensure the encoding of the string you are attempting " +
-            "to use is set correctly"
-          end
-        else
-          # on a non M17N aware VM, use unpack as a hackish way to verify the
-          # string is valid utf-8. I thought it was better than loading iconv
-          # though.
-          begin
-            text.unpack("U*")
-            return text.dup
-          rescue
-            raise Prawn::Errors::IncompatibleStringEncoding, "The string you " +
-              "are attempting to render is not encoded in valid UTF-8."
-          end
-        end
+        text.normalize_to_utf8
       end
 
       def glyph_present?(char)
-        code = char.unpack("U*").first
+        code = char.codepoints.first
         cmap[code] > 0
+      end
+
+      # Returns the number of characters in +str+ (a UTF-8-encoded string).
+      #
+      def character_count(str)
+        str.unicode_length
       end
 
       private
@@ -204,7 +188,7 @@ module Prawn
       def kern(string)
         a = []
 
-        string.unpack("U*").each do |r|
+        string.codepoints do |r|
           if a.empty?
             a << [r]
           elsif (kern = kern_pairs_table[[cmap[a.last.last], cmap[r]]])
@@ -233,6 +217,11 @@ module Prawn
 
       def character_width_by_code(code)    
         return 0 unless cmap[code]
+
+        # Some TTF fonts have nonzero widths for \n (UTF-8 / ASCII code: 10).
+        # Patch around this as we'll never be drawing a newline with a width.
+        return 0.0 if code == 10
+
         @char_widths[code] ||= Integer(hmtx.widths[cmap[code]] * scale_factor)
       end                   
 
@@ -279,8 +268,8 @@ module Prawn
                                    :Flags       => pdf_flags,
                                    :StemV       => stemV,
                                    :ItalicAngle => italic_angle,
-                                   :Ascent      => ascender,
-                                   :Descent     => descender,
+                                   :Ascent      => @ascender,
+                                   :Descent     => @descender,
                                    :CapHeight   => cap_height,
                                    :XHeight     => x_height)
 

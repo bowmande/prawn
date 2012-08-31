@@ -1,9 +1,10 @@
 # encoding: utf-8
 
-require File.join(File.expand_path(File.dirname(__FILE__)), "spec_helper")           
+require File.join(File.expand_path(File.dirname(__FILE__)), "spec_helper")
 require 'iconv'
+require 'pathname'
 
-describe "Font behavior" do  
+describe "Font behavior" do
 
   it "should default to Helvetica if no font is specified" do
     @pdf = Prawn::Document.new
@@ -19,6 +20,39 @@ describe "#width_of" do
     @pdf.character_spacing(7) do
       @pdf.width_of("hello world").should == original_width + 11 * 7
     end
+  end
+
+  it "should exclude newlines" do
+    create_pdf
+    # Use a TTF font that has a non-zero width for \n
+    @pdf.font("#{Prawn::DATADIR}/fonts/gkai00mp.ttf")
+
+    @pdf.width_of("\nhello world\n").should ==
+      @pdf.width_of("hello world")
+  end
+
+  it "should take formatting into account" do
+    create_pdf
+
+    normal_hello = @pdf.width_of("hello")
+    inline_bold_hello = @pdf.width_of("<b>hello</b>", :inline_format => true)
+    @pdf.font("Helvetica", :style => :bold) {
+      @bold_hello = @pdf.width_of("hello")
+    }
+    
+    inline_bold_hello.should.be > normal_hello
+    inline_bold_hello.should == @bold_hello
+  end
+
+  it "should accept :style as an argument" do
+    create_pdf
+
+    styled_bold_hello = @pdf.width_of("hello", :style => :bold)
+    @pdf.font("Helvetica", :style => :bold) {
+      @bold_hello = @pdf.width_of("hello")
+    }
+
+    styled_bold_hello.should == @bold_hello
   end
 end
 
@@ -63,7 +97,7 @@ describe "font style support" do
   end
 
   it "should allow font familes to be defined in a single dfont" do
-    file = "#{Prawn::BASEDIR}/data/fonts/Action Man.dfont"
+    file = "#{Prawn::DATADIR}/fonts/Action Man.dfont"
     @pdf.font_families["Action Man"] = {
       :normal      => { :file => file, :font => "ActionMan" },
       :italic      => { :file => file, :font => "ActionMan-Italic" },
@@ -78,6 +112,21 @@ describe "font style support" do
     name = text.font_settings.map { |e| e[:name] }.first.to_s
     name = name.sub(/\w+\+/, "subset+")
     name.should == "subset+ActionMan-Italic"
+  end
+
+  it "should accept Pathname objects for font files" do
+    file = Pathname.new( "#{Prawn::DATADIR}/fonts/Chalkboard.ttf" )
+    @pdf.font_families["Chalkboard"] = {
+      :normal => file
+    }
+
+    @pdf.font "Chalkboard"
+    @pdf.text "In Chalkboard"
+
+    text = PDF::Inspector::Text.analyze(@pdf.render)
+    name = text.font_settings.map { |e| e[:name] }.first.to_s
+    name = name.sub(/\w+\+/, "subset+")
+    name.should == "subset+Chalkboard"
   end
 end
 
@@ -220,15 +269,15 @@ describe "#glyph_present" do
   end
 
   it "should return true when present in a TTF font" do
-    font = @pdf.find_font("#{Prawn::BASEDIR}/data/fonts/Activa.ttf")
+    font = @pdf.find_font("#{Prawn::DATADIR}/fonts/Activa.ttf")
     font.glyph_present?("H").should.be true
   end
 
   it "should return false when absent in a TTF font" do
-    font = @pdf.find_font("#{Prawn::BASEDIR}/data/fonts/Activa.ttf")
+    font = @pdf.find_font("#{Prawn::DATADIR}/fonts/Activa.ttf")
     font.glyph_present?("再").should.be false
 
-    font = @pdf.find_font("#{Prawn::BASEDIR}/data/fonts/gkai00mp.ttf")
+    font = @pdf.find_font("#{Prawn::DATADIR}/fonts/gkai00mp.ttf")
     font.glyph_present?("€").should.be false
   end
 end
@@ -237,7 +286,7 @@ describe "TTF fonts" do
   
   setup do
     create_pdf
-    @activa = @pdf.find_font "#{Prawn::BASEDIR}/data/fonts/Activa.ttf"
+    @activa = @pdf.find_font "#{Prawn::DATADIR}/fonts/Activa.ttf"
   end
   
   it "should calculate string width taking into account accented characters" do
@@ -252,9 +301,11 @@ describe "TTF fonts" do
   it "should encode text without kerning by default" do
     @activa.encode_text("To").should == [[0, "To"]]
 
-    tele = (RUBY_VERSION < '1.9') ? "T\216l\216" :
-      "T\216l\216".force_encoding("US-ASCII")
-    @activa.encode_text("Télé").should == [[0, tele]]
+    tele = "T\216l\216"
+    result = @activa.encode_text("Télé")
+    result.length.should == 1
+    result[0][0].should == 0
+    result[0][1].bytes.to_a.should == tele.bytes.to_a
 
     @activa.encode_text("Technology").should == [[0, "Technology"]]
     @activa.encode_text("Technology...").should == [[0, "Technology..."]]
@@ -267,6 +318,19 @@ describe "TTF fonts" do
     @activa.encode_text("Technology", :kerning => true).should == [[0, ["T", 186.0, "echnology"]]]
     @activa.encode_text("Technology...", :kerning => true).should == [[0, ["T", 186.0, "echnology", 88.0, "..."]]]
     @activa.encode_text("Teχnology...", :kerning => true).should == [[0, ["T", 186.0, "e"]], [1, "!"], [0, ["nology", 88.0, "..."]]]
+  end
+
+  it "should use the ascender, descender, and cap height from the TTF verbatim" do
+    # These metrics are relative to the font's own bbox. They should not be
+    # scaled with font size.
+    ref = @pdf.ref!({})
+    @activa.send :embed, ref, 0
+
+    # Pull out the embedded font descriptor
+    descriptor = ref.data[:FontDescriptor].data
+    descriptor[:Ascent].should == 804
+    descriptor[:Descent].should == -195
+    descriptor[:CapHeight].should == 804
   end
 
   describe "when normalizing encoding" do
@@ -290,7 +354,7 @@ describe "TTF fonts" do
     it "should allow TTF fonts to be used alongside document transactions" do
       lambda {
         Prawn::Document.new do
-          font "#{Prawn::BASEDIR}/data/fonts/DejaVuSans.ttf"
+          font "#{Prawn::DATADIR}/fonts/DejaVuSans.ttf"
           text "Hi there"
           transaction { text "Nice, thank you" }
         end
@@ -300,7 +364,7 @@ describe "TTF fonts" do
     it "should allow TTF fonts to be used inside transactions" do
       pdf = Prawn::Document.new do
         transaction do
-          font "#{Prawn::BASEDIR}/data/fonts/DejaVuSans.ttf"
+          font "#{Prawn::DATADIR}/fonts/DejaVuSans.ttf"
           text "Hi there"
         end
       end
@@ -318,7 +382,7 @@ end
 describe "DFont fonts" do
   setup do
     create_pdf
-    @file = "#{Prawn::BASEDIR}/data/fonts/Action Man.dfont"
+    @file = "#{Prawn::DATADIR}/fonts/Action Man.dfont"
   end
 
   it "should list all named fonts" do
@@ -351,5 +415,19 @@ describe "DFont fonts" do
     assert_not_equal f1.object_id, f2.object_id
     assert_equal f1.object_id, @pdf.find_font(@file, :font => "ActionMan").object_id
     assert_equal f2.object_id, @pdf.find_font(@file, :font => "ActionMan-Bold").object_id
+  end
+end
+
+describe "#character_count(text)" do
+  it "should work on TTF fonts" do
+    create_pdf
+    @pdf.font("#{Prawn::DATADIR}/fonts/gkai00mp.ttf")
+    @pdf.font.character_count("こんにちは世界").should == 7
+    @pdf.font.character_count("Hello, world!").should == 13
+  end
+
+  it "should work on AFM fonts" do
+    create_pdf
+    @pdf.font.character_count("Hello, world!").should == 13
   end
 end

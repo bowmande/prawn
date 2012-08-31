@@ -4,6 +4,11 @@
 # with the <code>start_new_page</code> method. You may pass it a
 # <code>:template</code> option with the path for an existing pdf and a
 # <code>:template_page</code> option to specify which page to load.
+# You can also load a <code>:template</code> using a URI:
+#
+# <code>require 'open-uri'</code>
+#
+# <code>start_new_page(:template => open('url_for_your.pdf'))</code>
 #
 # The following example loads some pages from an existing PDF. If we don't
 # specify the <code>:template_page</code> option, the first page of the template
@@ -19,10 +24,12 @@ Prawn::Example.generate(filename) do
   text "Please scan the next 3 pages to see the page templates in action."
   move_down 10
   text "You also might want to look at the pdf used as a template: "
-  url = "https://github.com/sandal/prawn/raw/master/data/pdfs/form.pdf"
+  url = "https://github.com/prawnpdf/prawn/raw/master/data/pdfs/form.pdf"
+  move_down 10
+  
   formatted_text [{:text => url, :link => url}]
   
-  filename = "#{Prawn::BASEDIR}/data/pdfs/form.pdf"
+  filename = "#{Prawn::DATADIR}/pdfs/form.pdf"
   start_new_page(:template => filename)
   
   start_new_page(:template => filename, :template_page => 2)

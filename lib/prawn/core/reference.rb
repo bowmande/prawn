@@ -58,11 +58,14 @@ module Prawn
       def deep_copy(share=[])
         r = dup
 
-        if r.data.is_a?(Hash)
+        case r.data
+        when Hash
           # Copy each entry not in +share+.
           (r.data.keys - share).each do |k|
             r.data[k] = Marshal.load(Marshal.dump(r.data[k]))
           end
+        when Prawn::Core::NameTree::Node
+          r.data = r.data.deep_copy
         else
           r.data = Marshal.load(Marshal.dump(r.data))
         end
@@ -97,6 +100,8 @@ module Prawn
           obj.values.map{|v| [v] + referenced_objects(v) }
         when Array
           obj.map{|v| [v] + referenced_objects(v) }
+        when OutlineRoot, OutlineItem
+          referenced_objects(obj.to_hash)
         else []
         end.flatten.grep(self.class)
       end

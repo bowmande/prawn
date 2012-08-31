@@ -14,8 +14,9 @@ module Prawn
     # Add the image at filename to the current page. Currently only
     # JPG and PNG files are supported.
     #
-    # NOTE: Prawn is very slow at rendering PNGs with alpha channels.  The
-    # workaround for those who don't mind installing RMagick is to use:
+    # NOTE: Prawn is very slow at rendering PNGs with alpha channels, and this
+    # uses a lot of RAM. The workaround for those who don't mind installing
+    # RMagick is to use:
     #
     # http://github.com/amberbit/prawn-fast-png
     #
@@ -32,10 +33,10 @@ module Prawn
     # <tt>:fit</tt>:: scale the dimensions of the image proportionally to fit inside [width,height]
     # 
     #   Prawn::Document.generate("image2.pdf", :page_layout => :landscape) do     
-    #     pigs = "#{Prawn::BASEDIR}/data/images/pigs.jpg" 
+    #     pigs = "#{Prawn::DATADIR}/images/pigs.jpg" 
     #     image pigs, :at => [50,450], :width => 450                                      
     #
-    #     dice = "#{Prawn::BASEDIR}/data/images/dice.png"
+    #     dice = "#{Prawn::DATADIR}/images/dice.png"
     #     image dice, :at => [50, 450], :scale => 0.75 
     #   end   
     #
@@ -66,6 +67,20 @@ module Prawn
       Prawn.verify_options [:at, :position, :vposition, :height, 
                             :width, :scale, :fit, :overflow], options
 
+      pdf_obj, info = build_image_object(file)
+      embed_image(pdf_obj, info, options)
+
+      info
+    end
+
+    # Builds an info object (Prawn::Images::*) and a PDF reference representing
+    # the given image. Return a pair: [pdf_obj, info].
+    #
+    def build_image_object(file)
+      # Rewind if the object we're passed is an IO, so that multiple embeds of
+      # the same IO object will work
+      file.rewind if file.respond_to?(:rewind)
+
       if file.respond_to?(:read)
         image_content = file.read
       else
@@ -81,7 +96,7 @@ module Prawn
         image_obj = image_registry[image_sha1][:obj]
       else
         # Build the image object
-        klass = case detect_image_format(image_content)
+        klass = case Image.detect_image_format(image_content)
                 when :jpg then Prawn::Images::JPG
                 when :png then Prawn::Images::PNG
                 end
@@ -95,8 +110,17 @@ module Prawn
         image_registry[image_sha1] = {:obj => image_obj, :info => info}
       end
 
+      [image_obj, info]
+    end
+
+    # Given a PDF image resource <tt>pdf_obj</tt> that has been added to the
+    # page's resources and an <tt>info</tt> object (the pair returned from
+    # build_image_object), embed the image according to the <tt>options</tt>
+    # given.
+    #
+    def embed_image(pdf_obj, info, options)
       # find where the image will be placed and how big it will be  
-      w,h = calc_image_dimensions(info, options)
+      w,h = info.calc_image_dimensions(options)
 
       if options[:at]     
         x,y = map_to_absolute(options[:at]) 
@@ -108,25 +132,15 @@ module Prawn
       # add a reference to the image object to the current page
       # resource list and give it a label
       label = "I#{next_image_id}"
-      state.page.xobjects.merge!( label => image_obj )
-      
-      # add the image to the current page
-      if options[:overflow]
-        
-        crop_instruct = "%.3f %.3f %.3f %.3f re W n\n" % [bounds.absolute_left, bounds.absolute_bottom, bounds.width, bounds.height]
-        instruct = "\nq\n%s%.3f 0 0 %.3f %.3f %.3f cm\n/%s Do\nQ"
-        add_content instruct % [crop_instruct, w, h, x, y - h, label ]        
-      else
-        
-        instruct = "\nq\n%.3f 0 0 %.3f %.3f %.3f cm\n/%s Do\nQ"
-        add_content instruct % [ w, h, x, y - h, label ]
-      end
-      
-      return info
-    end
+      state.page.xobjects.merge!(label => pdf_obj)
 
-    private
+      # add the image to the current page
+      instruct = "\nq\n%.3f 0 0 %.3f %.3f %.3f cm\n/%s Do\nQ"
+      add_content instruct % [ w, h, x, y - h, label ]
+    end
     
+    private   
+
     def image_position(w,h,options)
       options[:position] ||= :left
       
@@ -167,6 +181,7 @@ module Prawn
     end 
     
     def overruns_page?(h)
+<<<<<<< HEAD
       (self.y - h) < bounds.absolute_bottom && !options[:overflow] == :hidden
     end
 
@@ -214,6 +229,9 @@ module Prawn
       else
         raise Errors::UnsupportedImageType, "image file is an unrecognised format"
       end
+=======
+      (self.y - h) < reference_bounds.absolute_bottom 
+>>>>>>> upstream/master
     end
 
     def image_registry
